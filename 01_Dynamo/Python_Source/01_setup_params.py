@@ -1,82 +1,226 @@
-# ПИТОН СКРИПТ 1: НАСТРОЙКА ПАРАМЕТРОВ И ТАБЛИЦЫ
+# ПИТОН СКРИПТ: СОЗДАНИЕ СПЕЦИФИКАЦИИ НАГРУЗОК
 import clr
+import sys
 clr.AddReference('RevitAPI')
 clr.AddReference('RevitServices')
+clr.AddReference('RevitAPIUI')
 from Autodesk.Revit.DB import *
+from Autodesk.Revit.UI import *
 from RevitServices.Persistence import DocumentManager
 from RevitServices.Transactions import TransactionManager
 
 doc = DocumentManager.Instance.CurrentDBDocument
-app = doc.Application
+uidoc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument
 
-# НАСТРОЙКИ
-param_name = "ADSK_Полезная_Нагрузка"
-sched_name = "00_Контроль нагрузок (Авто)"
-category = Category.GetCategory(doc, BuiltInCategory.OST_Rooms)
+# ===================== НАСТРОЙКИ =====================
+# Исправлено: имя параметра соответствует файлу общих параметров
+PARAM_NAME = "ADSK_Нагрузка_Полезная"
+SCHEDULE_NAME = "00_Контроль нагрузок (Авто)"
+CATEGORY = Category.GetCategory(doc, BuiltInCategory.OST_Rooms)
 
-# Блок 1: Создание параметра (если нет)
-def create_project_parameter():
-    # Проверка наличия
-    iterator = doc.ParameterBindings.ForwardIterator()
-    while iterator.MoveNext():
-        if iterator.Key.Name == param_name:
-            return "Параметр уже существует"
+# ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
+def schedule_exists(schedule_name, category_id):
+    """Проверка существования спецификации с указанным именем и категорией"""
+    try:
+        collector = FilteredElementCollector(doc).OfClass(ViewSchedule)
+        for schedule in collector:
+            if schedule.Name == schedule_name and schedule.Definition.CategoryId == category_id:
+                return schedule
+        return None
+    except:
+        return None
 
-    # Создание категории для привязки
-    cats = app.Create.NewCategorySet()
-    cats.Insert(category)
-
-    # Создание параметра (Revit 2022+ синтаксис)
-    # Используем SpecTypeId.Number для универсальности (чтобы не было конфликтов единиц)
-    opt = ExternalDefinitionCreationOptions(param_name, SpecTypeId.Number) 
-    # В старых версиях Revit заменить SpecTypeId.Number на ParameterType.Number
+def create_new_schedule():
+    """Создание новой спецификации для помещений"""
+    try:
+        # Проверяем, поддерживает ли категория спецификации
+        if not CategoryAllowsSchedules(CATEGORY.Id):
+            raise Exception("Категория '{}' не поддерживает создание спецификаций".format(CATEGORY.Name))
+        
+        # Создаем спецификацию
+        schedule = ViewSchedule.CreateSchedule(doc, CATEGORY.Id)
+        schedule.Name = SCHEDULE_NAME
+        
+        # Базовые настройки
+        schedule_def = schedule.Definition
+        schedule_def.ShowTitle = True
+        schedule_def.ShowHeaders = True
+        schedule_def.ShowGridLines = True
+        
+        return schedule, "Спецификация '{}' успешно создана".format(SCHEDULE_NAME)
     
-    # Создание временного файла общих параметров (трюк для API)
-    # API не позволяет создать ProjectParameter напрямую без определения
-    # Но мы сделаем это через Shared, если нужно, или упростим:
-    # Для стабильности кода ниже используется создание через Shared Parameter
-    # который конвертируется в Project Parameter "на лету" 
-    # (Упрощенная версия - просто сообщение пользователю)
-    return "Требуется ручное создание или загрузка ФОП для параметра. Скрипт пропустил этот шаг для безопасности."
+    except Exception as e:
+        raise Exception("Ошибка создания спецификации: {}".format(str(e)))
 
-# Блок 2: Создание спецификации
-def create_schedule():
-    # Проверка имени
-    col = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
-    for s in col:
-        if s.Name == sched_name:
-            return s
+def CategoryAllowsSchedules(category_id):
+    """Проверка, поддерживает ли категория создание спецификаций"""
+    try:
+        # Проверяем, можно ли создать спецификацию для этой категории
+        schedule = ViewSchedule.CreateSchedule(doc, category_id)
+        doc.Delete(schedule.Id)
+        return True
+    except:
+        return False
+
+def configure_schedule_fields(schedule):
+    """Настройка полей спецификации по ГОСТ 21.501-2018 (форма 2)"""
+    try:
+        schedule_def = schedule.Definition
+        
+        # Удаляем все существующие поля
+        field_order = schedule_def.GetFieldOrder()
+        for field_id in list(field_order):  # Создаем копию списка для безопасного удаления
+            schedule_def.RemoveField(field_id)
+        
+        # Добавляем обязательные поля по ГОСТ
+        # 1. Номер помещения
+        room_number_field = schedule_def.AddField(
+            ScheduleFieldType.Instance, 
+            ElementId(BuiltInParameter.ROOM_NUMBER)
+        )
+        room_number_field.ColumnHeading = "№ п/п"
+        room_number_field.Width = 30
+        
+        # 2. Наименование помещения
+        room_name_field = schedule_def.AddField(
+            ScheduleFieldType.Instance, 
+            ElementId(BuiltInParameter.ROOM_NAME)
+        )
+        room_name_field.ColumnHeading = "Наименование помещения"
+        room_name_field.Width = 150
+        
+        # 3. Полезная нагрузка (ищем параметр из общего файла)
+        param_found = False
+        try:
+            # Ищем параметр по имени, как указано в файле общих параметров
+            binding_map = doc.ParameterBindings
+            iterator = binding_map.ForwardIterator()
+            while iterator.MoveNext():
+                if iterator.Key.Name == PARAM_NAME:
+                    load_field = schedule_def.AddField(
+                        ScheduleFieldType.Instance, 
+                        iterator.Key.Id
+                    )
+                    load_field.ColumnHeading = "Нагрузка, кг/м²"
+                    load_field.Width = 60
+                    load_field.DisplayType = ScheduleFieldDisplayType.Decimal
+                    load_field.Accuracy = 0.1
+                    load_field.HorizontalAlignment = HorizontalAlignmentStyle.Right
+                    param_found = True
+                    break
+        
+        except Exception as e:
+            # Не прерываем работу, если параметр не найден
+            print("Предупреждение: {}".format(str(e)))
+        
+        # Если параметр не найден, добавляем примечание
+        if not param_found:
+            note_field = schedule_def.AddCalculatedField("Примечание")
+            note_field.Formula = "\"Параметр '" + PARAM_NAME + "' не найден. Добавьте его из общего файла параметров\""
+            note_field.ColumnHeading = "Примечание"
+            note_field.Width = 200
+            note_field.HorizontalAlignment = HorizontalAlignmentStyle.Left
+        
+        return True, "Поля спецификации настроены"
+    
+    except Exception as e:
+        return False, "Ошибка настройки полей: {}".format(str(e))
+
+def format_schedule_table(schedule):
+    """Форматирование таблицы спецификации"""
+    try:
+        # Принудительно обновляем данные
+        schedule.Definition.Refresh()
+        
+        # Настраиваем форматирование
+        table_data = schedule.GetTableData()
+        if not table_data:
+            return True, "Данные таблицы недоступны для форматирования"
+        
+        # Настраиваем заголовки
+        title_section = table_data.GetSectionData(SectionType.Header)
+        if title_section:
+            title_section.SetColumnWidth(0, 30)  # № п/п
+            title_section.SetColumnWidth(1, 150)  # Наименование помещения
+            if title_section.NumberOfColumns > 2:
+                title_section.SetColumnWidth(2, 60)  # Нагрузка
+        
+        return True, "Форматирование таблицы выполнено"
+    
+    except Exception as e:
+        return False, "Ошибка форматирования таблицы: {}".format(str(e))
+
+# ===================== ОСНОВНОЙ БЛОК КОДА =====================
+try:
+    # Проверяем, существует ли уже спецификация
+    existing_schedule = schedule_exists(SCHEDULE_NAME, CATEGORY.Id)
+    
+    if existing_schedule:
+        # Если спецификация существует, просто активируем ее
+        TransactionManager.Instance.EnsureInTransaction(doc)
+        try:
+            # Обновляем поля существующей спецификации
+            field_success, field_result = configure_schedule_fields(existing_schedule)
+            format_success, format_result = format_schedule_table(existing_schedule)
+            TransactionManager.Instance.TransactionTaskDone()
             
-    # Создание
-    sched = ViewSchedule.CreateSchedule(doc, category.Id)
-    sched.Name = sched_name
-    
-    # Добавление полей
-    # Получаем определения полей (Номер, Имя)
-    s_def = sched.Definition
-    
-    # Добавляем Номер
-    field_number_id = None
-    field_name_id = None
-    
-    # Поиск полей (немного магии для поиска BuiltIn)
-    for schedulable_field in s_def.GetSchedulableFields():
-        if schedulable_field.ParameterId == ElementId(BuiltInParameter.ROOM_NUMBER):
-            s_def.AddField(schedulable_field)
-        elif schedulable_field.ParameterId == ElementId(BuiltInParameter.ROOM_NAME):
-            s_def.AddField(schedulable_field)
+            # Активируем вид
+            uidoc.ActiveView = existing_schedule
             
-    # Попытка добавить наш параметр Нагрузки
-    # (Нужно найти его ID после создания)
-    # Для простоты скрипта - этот шаг часто требует перезагрузки транзакции
+            OUT = {
+                "status": "success",
+                "messages": [
+                    "Спецификация '{}' уже существует".format(SCHEDULE_NAME),
+                    field_result,
+                    format_result
+                ],
+                "schedule_id": existing_schedule.Id.ToString(),
+                "schedule_name": SCHEDULE_NAME
+            }
+        except Exception as e:
+            TransactionManager.Instance.ForceCloseTransaction()
+            raise e
     
-    return sched
+    else:
+        # Создаем новую спецификацию
+        TransactionManager.Instance.EnsureInTransaction(doc)
+        try:
+            # Шаг 1: Создаем спецификацию
+            schedule, create_result = create_new_schedule()
+            
+            # Шаг 2: Настраиваем поля
+            field_success, field_result = configure_schedule_fields(schedule)
+            
+            # Шаг 3: Форматируем таблицу
+            format_success, format_result = format_schedule_table(schedule)
+            
+            TransactionManager.Instance.TransactionTaskDone()
+            
+            # Активируем спецификацию в интерфейсе
+            try:
+                uidoc.ActiveView = schedule
+            except:
+                pass
+            
+            OUT = {
+                "status": "success",
+                "messages": [
+                    create_result,
+                    field_result,
+                    format_result
+                ],
+                "schedule_id": schedule.Id.ToString(),
+                "schedule_name": SCHEDULE_NAME
+            }
+            
+        except Exception as e:
+            TransactionManager.Instance.ForceCloseTransaction()
+            raise e
 
-TransactionManager.Instance.EnsureInTransaction(doc)
-
-# 1. Пытаемся создать спецификацию
-new_sched = create_schedule()
-
-TransactionManager.Instance.TransactionTaskDone()
-
-OUT = "Спецификация '{}' создана/найдена. Параметр '{}' должен быть добавлен в проект вручную через ФОП для надежности.".format(sched_name, param_name)
+except Exception as e:
+    error_msg = "Ошибка выполнения скрипта: {}".format(str(e))
+    OUT = {
+        "status": "error",
+        "error_message": error_msg,
+        "stack_trace": str(sys.exc_info()[2])
+    }
