@@ -1,0 +1,9 @@
+# Revit Backups
+*.00*.rvt
+*.00*.rfa
+*.bak
+*_backup/
+
+# Dynamo logs
+*.log
+backup/
