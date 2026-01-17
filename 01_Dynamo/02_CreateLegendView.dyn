@@ -1,0 +1,112 @@
+{
+  "Uuid": "d2bbc3a1-4ba7-4cab-87bc-5ab3a9336049",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "02_CreateLegendView",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "# ПИТОН СКРИПТ 2: ГЕНЕРАЦИЯ ЛИСТОВ И ЛЕГЕНД\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\nuidoc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument\r\nactive_view = doc.ActiveView\r\n\r\n# НАСТРОЙКИ\r\nsuffix = \"_НАГРУЗКИ\"\r\nlegend_category_id = ElementId(BuiltInCategory.OST_Rooms)\r\n\r\nresult = []\r\n\r\nTransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\ntry:\r\n    # 1. Дублирование Вида\r\n    # DuplicateOption.Duplicate (без детализации) или WithDetailing\r\n    new_view_id = active_view.Duplicate(ViewDuplicateOption.Duplicate)\r\n    new_view = doc.GetElement(new_view_id)\r\n    \r\n    # Переименование\r\n    try:\r\n        new_view.Name = active_view.Name + suffix\r\n    except:\r\n        new_view.Name = active_view.Name + suffix + \"_Copy\"\r\n        \r\n    # 2. Создание Листа (TitleBlock берется первый попавшийся)\r\n    tb_collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_TitleBlocks).WhereElementIsElementType().FirstElement()\r\n    \r\n    if tb_collector:\r\n        new_sheet = ViewSheet.Create(doc, tb_collector.Id)\r\n        new_sheet.Name = \"План нагрузок\"\r\n        new_sheet.SheetNumber = \"Н-\" + active_view.Name[:3] # Генерируем номер\r\n        \r\n        # 3. Размещение вида на листе (по центру, условно)\r\n        # Получаем центр листа (примерно)\r\n        center_pt = XYZ(1.5, 1.0, 0) # В футах! 1.5 фута ~ 450мм\r\n        \r\n        if Viewport.CanAddViewToSheet(doc, new_sheet.Id, new_view.Id):\r\n            vp = Viewport.Create(doc, new_sheet.Id, new_view.Id, center_pt)\r\n            result.append(\"Вид и Лист созданы\")\r\n    else:\r\n        result.append(\"Ошибка: Не загружены семейства Основных надписей (TitleBlocks)\")\r\n\r\n    # 4. Включение цветовой схемы (Workaround)\r\n    # Мы не можем легко создать схему, но можем включить отображение\r\n    # Получаем параметр схемы\r\n    color_scheme_param = new_view.get_Parameter(BuiltInParameter.VIEWER_COLOR_SCHEME_LOCATION)\r\n    if color_scheme_param and not color_scheme_param.IsReadOnly:\r\n        # Включаем \"Background\" (Фон)\r\n        color_scheme_param.Set(1) \r\n        result.append(\"Цветовая схема активирована (настройте цвета вручную)\")\r\n\r\n    # 5. Попытка создать Легенду (Color Fill Legend)\r\n    # Это возможно только в новых версиях API и требует точных координат\r\n    # Обычно это делают вручную, так как API часто дает сбой на Create\r\n    # place_legend = ColorFillLegend.Create(doc, new_view.Id, legend_category_id, XYZ(0,0,0))\r\n\r\nexcept Exception as e:\r\n    result.append(\"Ошибка: \" + str(e))\r\n\r\nTransactionManager.Instance.TransactionTaskDone()\r\n\r\nOUT = result",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "153498d22aec40818c6d93b5a04bc1d4",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "7c1235b68ff74d26b399a82afa8719d0",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "03a0aaadc47040b59785a0b9ea49b22c",
+          "Name": "OUT",
+          "Description": "Результат сценария Python",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Выполнение встроенного сценария Python."
+    }
+  ],
+  "Connectors": [],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": true,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Свойства",
+      "Version": "2.13",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "2.0",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "Нет",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.0.3.7597",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Фоновый просмотр",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "153498d22aec40818c6d93b5a04bc1d4",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 499.5,
+        "Y": 251.0
+      }
+    ],
+    "Annotations": [],
+    "X": -262.6562712589366,
+    "Y": -159.07768955371282,
+    "Zoom": 1.164389808056264
+  }
+}

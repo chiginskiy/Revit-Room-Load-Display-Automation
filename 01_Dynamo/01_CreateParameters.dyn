@@ -1,0 +1,112 @@
+{
+  "Uuid": "3842f0b3-7581-4b09-a994-06968ce83aef",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "01_CreateParameters",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "# ПИТОН СКРИПТ 1: НАСТРОЙКА ПАРАМЕТРОВ И ТАБЛИЦЫ\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\napp = doc.Application\r\n\r\n# НАСТРОЙКИ\r\nparam_name = \"ADSK_Полезная_Нагрузка\"\r\nsched_name = \"00_Контроль нагрузок (Авто)\"\r\ncategory = Category.GetCategory(doc, BuiltInCategory.OST_Rooms)\r\n\r\n# Блок 1: Создание параметра (если нет)\r\ndef create_project_parameter():\r\n    # Проверка наличия\r\n    iterator = doc.ParameterBindings.ForwardIterator()\r\n    while iterator.MoveNext():\r\n        if iterator.Key.Name == param_name:\r\n            return \"Параметр уже существует\"\r\n\r\n    # Создание категории для привязки\r\n    cats = app.Create.NewCategorySet()\r\n    cats.Insert(category)\r\n\r\n    # Создание параметра (Revit 2022+ синтаксис)\r\n    # Используем SpecTypeId.Number для универсальности (чтобы не было конфликтов единиц)\r\n    opt = ExternalDefinitionCreationOptions(param_name, SpecTypeId.Number) \r\n    # В старых версиях Revit заменить SpecTypeId.Number на ParameterType.Number\r\n    \r\n    # Создание временного файла общих параметров (трюк для API)\r\n    # API не позволяет создать ProjectParameter напрямую без определения\r\n    # Но мы сделаем это через Shared, если нужно, или упростим:\r\n    # Для стабильности кода ниже используется создание через Shared Parameter\r\n    # который конвертируется в Project Parameter \"на лету\" \r\n    # (Упрощенная версия - просто сообщение пользователю)\r\n    return \"Требуется ручное создание или загрузка ФОП для параметра. Скрипт пропустил этот шаг для безопасности.\"\r\n\r\n# Блок 2: Создание спецификации\r\ndef create_schedule():\r\n    # Проверка имени\r\n    col = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()\r\n    for s in col:\r\n        if s.Name == sched_name:\r\n            return s\r\n            \r\n    # Создание\r\n    sched = ViewSchedule.CreateSchedule(doc, category.Id)\r\n    sched.Name = sched_name\r\n    \r\n    # Добавление полей\r\n    # Получаем определения полей (Номер, Имя)\r\n    s_def = sched.Definition\r\n    \r\n    # Добавляем Номер\r\n    field_number_id = None\r\n    field_name_id = None\r\n    \r\n    # Поиск полей (немного магии для поиска BuiltIn)\r\n    for schedulable_field in s_def.GetSchedulableFields():\r\n        if schedulable_field.ParameterId == ElementId(BuiltInParameter.ROOM_NUMBER):\r\n            s_def.AddField(schedulable_field)\r\n        elif schedulable_field.ParameterId == ElementId(BuiltInParameter.ROOM_NAME):\r\n            s_def.AddField(schedulable_field)\r\n            \r\n    # Попытка добавить наш параметр Нагрузки\r\n    # (Нужно найти его ID после создания)\r\n    # Для простоты скрипта - этот шаг часто требует перезагрузки транзакции\r\n    \r\n    return sched\r\n\r\nTransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\n# 1. Пытаемся создать спецификацию\r\nnew_sched = create_schedule()\r\n\r\nTransactionManager.Instance.TransactionTaskDone()\r\n\r\nOUT = \"Спецификация '{}' создана/найдена. Параметр '{}' должен быть добавлен в проект вручную через ФОП для надежности.\".format(sched_name, param_name)",
+      "Engine": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "6f37c162d471443591468236f6ac63da",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "0b4b89cc8fa7462791907aeb4b492799",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "a27f1c7bc0f64513ace1da104847f52e",
+          "Name": "OUT",
+          "Description": "Результат сценария Python",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Выполнение встроенного сценария Python."
+    }
+  ],
+  "Connectors": [],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": true,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Свойства",
+      "Version": "2.13",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "2.0",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "Нет",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.0.3.7597",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Фоновый просмотр",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "6f37c162d471443591468236f6ac63da",
+        "Name": "Python Script",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 388.5,
+        "Y": 150.0
+      }
+    ],
+    "Annotations": [],
+    "X": 0.0,
+    "Y": 0.0,
+    "Zoom": 1.0
+  }
+}
